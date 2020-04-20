@@ -17,140 +17,137 @@
  */
 package org.wso2.carbon.identity.scim2.common.utils;
 
-import org.apache.axiom.om.OMElement;
-import org.apache.axiom.om.impl.builder.StAXOMBuilder;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.wso2.charon3.core.exceptions.CharonException;
-
-import javax.xml.namespace.QName;
-import javax.xml.stream.XMLStreamException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLStreamException;
+
+import org.apache.axiom.om.OMElement;
+import org.apache.axiom.om.impl.builder.StAXOMBuilder;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.wso2.charon3.core.exceptions.CharonException;
+
 /**
- * Class responsible for building a programmatic representation of provisioning-config.xml.
- * Any application using this library can pass the file path
- * in expected format to get it parsed.
+ * Class responsible for building a programmatic representation of
+ * provisioning-config.xml. Any application using this library can pass the file
+ * path in expected format to get it parsed.
  */
 public class SCIMConfigProcessor {
 
-    private static SCIMConfigProcessor scimConfigProcessor = new SCIMConfigProcessor();
+	private static SCIMConfigProcessor scimConfigProcessor = new SCIMConfigProcessor();
 
-    //map to keep the properties values
-    Map<String, String> properties = new HashMap<String, String>();
-    //list to keep the authentication schemas
-    List<AuthenticationSchema> authenticationSchemas = null;
+	// map to keep the properties values
+	Map<String, String> properties = new HashMap<String, String>();
+	// list to keep the authentication schemas
+	List<AuthenticationSchema> authenticationSchemas = null;
 
-    private Log logger = LogFactory.getLog(SCIMConfigProcessor.class);
+	private Log logger = LogFactory.getLog(SCIMConfigProcessor.class);
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
+	public Map<String, String> getProperties() {
+		return this.properties;
+	}
 
-    public String getProperty(String property) {
-        if (properties.get(property) != null) {
-            return properties.get(property);
-        }
-        return null;
-    }
+	public String getProperty(String property) {
+		if (this.properties.get(property) != null) {
+			return this.properties.get(property);
+		}
+		return null;
+	}
 
-    public List<AuthenticationSchema> getAuthenticationSchemas() {
-        return authenticationSchemas;
-    }
+	public List<AuthenticationSchema> getAuthenticationSchemas() {
+		return this.authenticationSchemas;
+	}
 
-    public void buildConfigFromFile(String filePath) throws CharonException {
-        try {
-            InputStream inputStream = null;
-            File provisioningConfig = new File(filePath);
-            if (provisioningConfig.exists()) {
-                inputStream = new FileInputStream(provisioningConfig);
-                StAXOMBuilder staxOMBuilder = new StAXOMBuilder(inputStream);
-                OMElement documentElement = staxOMBuilder.getDocumentElement();
-                if (inputStream != null) {
-                    inputStream.close();
-                }
-                buildConfigFromRootElement(documentElement);
-            } else {
-                throw new FileNotFoundException();
-            }
-        } catch (FileNotFoundException e) {
-            throw new CharonException(SCIMCommonConstants.CHARON_CONFIG_NAME + "not found.");
-        } catch (XMLStreamException e) {
-            throw new CharonException("Error in building the configuration file: " +
-                    SCIMCommonConstants.CHARON_CONFIG_NAME);
-        } catch (IOException e) {
-            throw new CharonException("Error in building the configuration file: " +
-                    SCIMCommonConstants.CHARON_CONFIG_NAME);
-        }
-    }
+	public void buildConfigFromFile(String filePath) throws CharonException {
+		this.logger.warn(String.format("building SCIM config from: %s", filePath));
+		try {
+			InputStream inputStream = null;
+			File provisioningConfig = new File(filePath);
+			if (provisioningConfig.exists()) {
+				inputStream = new FileInputStream(provisioningConfig);
+				StAXOMBuilder staxOMBuilder = new StAXOMBuilder(inputStream);
+				OMElement documentElement = staxOMBuilder.getDocumentElement();
+				if (inputStream != null) {
+					inputStream.close();
+				}
+				this.buildConfigFromRootElement(documentElement);
+			} else {
+				throw new FileNotFoundException();
+			}
+		} catch (FileNotFoundException e) {
+			throw new CharonException(SCIMCommonConstants.CHARON_CONFIG_NAME + "not found.");
+		} catch (XMLStreamException e) {
+			throw new CharonException(
+					"Error in building the configuration file: " + SCIMCommonConstants.CHARON_CONFIG_NAME);
+		} catch (IOException e) {
+			throw new CharonException(
+					"Error in building the configuration file: " + SCIMCommonConstants.CHARON_CONFIG_NAME);
+		}
+	}
 
-    private void buildConfigFromRootElement(OMElement rootElement) {
+	private void buildConfigFromRootElement(OMElement rootElement) {
 
+		// read any properties defined.
+		Iterator<OMElement> propertiesIterator = rootElement
+				.getChildrenWithName(new QName(SCIMCommonConstants.ELEMENT_NAME_PROPERTY));
 
-        //read any properties defined.
-        Iterator<OMElement> propertiesIterator = rootElement.getChildrenWithName(
-                new QName(SCIMCommonConstants.ELEMENT_NAME_PROPERTY));
+		while (propertiesIterator.hasNext()) {
+			OMElement propertyElement = propertiesIterator.next();
+			String propertyName = propertyElement.getAttributeValue(new QName(SCIMCommonConstants.ATTRIBUTE_NAME_NAME));
+			String propertyValue = propertyElement.getText();
+			this.properties.put(propertyName, propertyValue);
+		}
 
-        while (propertiesIterator.hasNext()) {
-            OMElement propertyElement = propertiesIterator.next();
-            String propertyName = propertyElement.getAttributeValue(
-                    new QName(SCIMCommonConstants.ATTRIBUTE_NAME_NAME));
-            String propertyValue = propertyElement.getText();
-            properties.put(propertyName, propertyValue);
-        }
+		OMElement scimAuthenticationSchemaElement = rootElement
+				.getFirstChildWithName(new QName(SCIMCommonConstants.ELEMENT_NAME_AUTHENTICATION_SCHEMES));
 
-        OMElement scimAuthenticationSchemaElement = rootElement.getFirstChildWithName(
-                new QName(SCIMCommonConstants.ELEMENT_NAME_AUTHENTICATION_SCHEMES));
+		// iterate over the individual elements and create authentication schema map.
+		Iterator<OMElement> authenticationSchemasIterator = scimAuthenticationSchemaElement
+				.getChildrenWithName(new QName(SCIMCommonConstants.ELEMENT_NAME_SCHEMA));
 
-        //iterate over the individual elements and create authentication schema map.
-        Iterator<OMElement> authenticationSchemasIterator =
-                scimAuthenticationSchemaElement.getChildrenWithName(new QName(SCIMCommonConstants.ELEMENT_NAME_SCHEMA));
+		// build authentication schema map
+		if (authenticationSchemasIterator != null) {
+			this.authenticationSchemas = this.buildAuthenticationSchemasMap(authenticationSchemasIterator);
+		}
+	}
 
-        //build authentication schema map
-        if (authenticationSchemasIterator != null) {
-           authenticationSchemas  = buildAuthenticationSchemasMap(authenticationSchemasIterator);
-        }
-    }
+	private List<AuthenticationSchema> buildAuthenticationSchemasMap(Iterator<OMElement> schemasIterator) {
 
+		List<AuthenticationSchema> schemasList = new ArrayList<>();
 
-    private List<AuthenticationSchema> buildAuthenticationSchemasMap
-            (Iterator<OMElement> schemasIterator) {
+		while (schemasIterator.hasNext()) {
+			OMElement schemaElement = schemasIterator.next();
+			AuthenticationSchema authenticationSchema = new AuthenticationSchema();
+			Map<String, String> propertiesMap = new HashMap<String, String>();
 
-        List<AuthenticationSchema> schemasList = new ArrayList<>();
+			// read schema properties
+			Iterator<OMElement> propertiesIterator = schemaElement
+					.getChildrenWithName(new QName(SCIMCommonConstants.ELEMENT_NAME_PROPERTY));
+			while (propertiesIterator.hasNext()) {
+				OMElement propertyElement = propertiesIterator.next();
+				String propertyName = propertyElement
+						.getAttributeValue(new QName(SCIMCommonConstants.ATTRIBUTE_NAME_NAME));
+				String propertyValue = propertyElement.getText();
+				propertiesMap.put(propertyName, propertyValue);
+			}
+			authenticationSchema.setProperties(propertiesMap);
+			schemasList.add(authenticationSchema);
+		}
 
-        while (schemasIterator.hasNext()) {
-            OMElement schemaElement = schemasIterator.next();
-            AuthenticationSchema authenticationSchema = new AuthenticationSchema();
-            Map<String, String> propertiesMap = new HashMap<String, String>();
+		return schemasList;
+	}
 
-            //read schema properties
-            Iterator<OMElement> propertiesIterator = schemaElement.getChildrenWithName(
-                    new QName(SCIMCommonConstants.ELEMENT_NAME_PROPERTY));
-            while (propertiesIterator.hasNext()) {
-                OMElement propertyElement = propertiesIterator.next();
-                String propertyName = propertyElement.getAttributeValue(
-                        new QName(SCIMCommonConstants.ATTRIBUTE_NAME_NAME));
-                String propertyValue = propertyElement.getText();
-                propertiesMap.put(propertyName, propertyValue);
-            }
-            authenticationSchema.setProperties(propertiesMap);
-            schemasList.add(authenticationSchema);
-        }
-
-        return schemasList;
-    }
-
-    public static SCIMConfigProcessor getInstance() {
-        return scimConfigProcessor;
-    }
+	public static SCIMConfigProcessor getInstance() {
+		return scimConfigProcessor;
+	}
 }
-

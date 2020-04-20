@@ -18,6 +18,10 @@
 
 package org.wso2.carbon.identity.scim2.common.internal;
 
+import java.io.File;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.osgi.framework.ServiceRegistration;
@@ -39,110 +43,110 @@ import org.wso2.charon3.core.config.SCIMUserSchemaExtensionBuilder;
 import org.wso2.charon3.core.exceptions.CharonException;
 import org.wso2.charon3.core.exceptions.InternalErrorException;
 
-
-import java.io.File;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
 /**
  * @scr.component name="identity.scim2.common" immediate="true"
  * @scr.reference name="identityCoreInitializedEventService"
- * interface="org.wso2.carbon.identity.core.util.IdentityCoreInitializedEvent" cardinality="1..1"
- * policy="dynamic" bind="setIdentityCoreInitializedEventService" unbind="unsetIdentityCoreInitializedEventService"
+ *                interface="org.wso2.carbon.identity.core.util.IdentityCoreInitializedEvent"
+ *                cardinality="1..1" policy="dynamic"
+ *                bind="setIdentityCoreInitializedEventService"
+ *                unbind="unsetIdentityCoreInitializedEventService"
  * @scr.reference name="user.realmservice.default"
- * interface="org.wso2.carbon.user.core.service.RealmService" cardinality="1..1"
- * policy="dynamic" bind="setRealmService" unbind="unsetRealmService"
+ *                interface="org.wso2.carbon.user.core.service.RealmService"
+ *                cardinality="1..1" policy="dynamic" bind="setRealmService"
+ *                unbind="unsetRealmService"
  */
 public class SCIMCommonComponent {
-    private static Log logger = LogFactory.getLog(SCIMCommonComponent.class);
+	private static Log logger = LogFactory.getLog(SCIMCommonComponent.class);
 
-    ExecutorService executorService = Executors.newFixedThreadPool(1);
+	ExecutorService executorService = Executors.newFixedThreadPool(1);
 
-    private ServiceRegistration<TenantMgtListener> tenantMgtListenerServiceReg;
-    private ServiceRegistration<UserOperationEventListener> userOperationEventListenerServiceReg;
+	private ServiceRegistration<TenantMgtListener> tenantMgtListenerServiceReg;
+	private ServiceRegistration<UserOperationEventListener> userOperationEventListenerServiceReg;
 
+	protected void activate(ComponentContext ctx) {
+		try {
+			String filePath = IdentityUtil.getIdentityConfigDirPath() + File.separator
+					+ SCIMCommonConstants.CHARON_CONFIG_NAME;
+			logger.warn(String.format("activating SCIMCommonComponent with config from %s", filePath));
+			SCIMConfigProcessor scimConfigProcessor = SCIMConfigProcessor.getInstance();
+			scimConfigProcessor.buildConfigFromFile(filePath);
 
-    protected void activate(ComponentContext ctx) {
-        try {
-            String filePath = IdentityUtil.getIdentityConfigDirPath() + File.separator +
-                              SCIMCommonConstants.CHARON_CONFIG_NAME;
+			// reading user schema extension
+			if (Boolean.parseBoolean(scimConfigProcessor.getProperty("user-schema-extension-enabled"))) {
+				String schemaFilePath = CarbonUtils.getCarbonConfigDirPath() + File.separator
+						+ SCIMConfigConstants.SCIM_SCHEMA_EXTENSION_CONFIG;
+				SCIMUserSchemaExtensionBuilder.getInstance().buildUserSchemaExtension(schemaFilePath);
+			}
 
-            SCIMConfigProcessor scimConfigProcessor = SCIMConfigProcessor.getInstance();
-            scimConfigProcessor.buildConfigFromFile(filePath);
+			// register UserOperationEventListener implementation
+			SCIMUserOperationListener scimUserOperationListener = new SCIMUserOperationListener();
+			this.userOperationEventListenerServiceReg = ctx.getBundleContext()
+					.registerService(UserOperationEventListener.class, scimUserOperationListener, null);
 
-            // reading user schema extension
-            if (Boolean.parseBoolean(scimConfigProcessor.getProperty("user-schema-extension-enabled"))) {
-                String schemaFilePath =
-                        CarbonUtils.getCarbonConfigDirPath() + File.separator +
-                        SCIMConfigConstants.SCIM_SCHEMA_EXTENSION_CONFIG;
-                SCIMUserSchemaExtensionBuilder.getInstance().buildUserSchemaExtension(schemaFilePath);
-            }
+			// register scimTenantMgtListener implementation
+			SCIMTenantMgtListener scimTenantMgtListener = new SCIMTenantMgtListener();
+			this.tenantMgtListenerServiceReg = ctx.getBundleContext().registerService(TenantMgtListener.class,
+					scimTenantMgtListener, null);
 
-            //register UserOperationEventListener implementation
-            SCIMUserOperationListener scimUserOperationListener = new SCIMUserOperationListener();
-            userOperationEventListenerServiceReg = ctx.getBundleContext()
-                    .registerService(UserOperationEventListener.class, scimUserOperationListener, null);
+			// Update super tenant user/group attributes.
+			AdminAttributeUtil.updateAdminUser(MultitenantConstants.SUPER_TENANT_ID, true);
+			AdminAttributeUtil.updateAdminGroup(MultitenantConstants.SUPER_TENANT_ID);
 
-            //register scimTenantMgtListener implementation
-            SCIMTenantMgtListener scimTenantMgtListener = new SCIMTenantMgtListener();
-            tenantMgtListenerServiceReg = ctx.getBundleContext().registerService(TenantMgtListener.class,
-                    scimTenantMgtListener, null);
+			if (logger.isDebugEnabled()) {
+				logger.debug("SCIM Common component activated successfully.");
+			}
+		} catch (CharonException e) {
+			logger.error("Error in reading information from identity tables at SCIMCommonComponentStartup.", e);
+		} catch (InternalErrorException e) {
+			logger.error("Error in reading information from identity tables at SCIMCommonComponentStartup.", e);
+		}
+	}
 
-            //Update super tenant user/group attributes.
-            AdminAttributeUtil.updateAdminUser(MultitenantConstants.SUPER_TENANT_ID, true);
-            AdminAttributeUtil.updateAdminGroup(MultitenantConstants.SUPER_TENANT_ID);
+	protected void unsetIdentityCoreInitializedEventService(IdentityCoreInitializedEvent identityCoreInitializedEvent) {
+		/*
+		 * reference IdentityCoreInitializedEvent service to guarantee that this
+		 * component will wait until identity core is started
+		 */
+	}
 
-            if (logger.isDebugEnabled()) {
-                logger.debug("SCIM Common component activated successfully.");
-            }
-        } catch (CharonException e) {
-            logger.error("Error in reading information from identity tables at SCIMCommonComponentStartup.", e);
-        } catch (InternalErrorException e) {
-            logger.error("Error in reading information from identity tables at SCIMCommonComponentStartup.", e);
-        }
-    }
+	protected void setIdentityCoreInitializedEventService(IdentityCoreInitializedEvent identityCoreInitializedEvent) {
+		/*
+		 * reference IdentityCoreInitializedEvent service to guarantee that this
+		 * component will wait until identity core is started
+		 */
+	}
 
-    protected void unsetIdentityCoreInitializedEventService(IdentityCoreInitializedEvent identityCoreInitializedEvent) {
-        /* reference IdentityCoreInitializedEvent service to guarantee that this component will wait until identity core
-         is started */
-    }
+	/**
+	 * Set realm service implementation
+	 *
+	 * @param realmService RealmService
+	 */
+	protected void setRealmService(RealmService realmService) {
 
-    protected void setIdentityCoreInitializedEventService(IdentityCoreInitializedEvent identityCoreInitializedEvent) {
-        /* reference IdentityCoreInitializedEvent service to guarantee that this component will wait until identity core
-         is started */
-    }
+		if (logger.isDebugEnabled()) {
+			logger.debug("realmService set in SCIMCommonComponent bundle");
+		}
+		SCIMCommonComponentHolder.setRealmService(realmService);
+	}
 
-    /**
-     * Set realm service implementation
-     *
-     * @param realmService RealmService
-     */
-    protected void setRealmService(RealmService realmService) {
+	/**
+	 * Unset realm service implementation
+	 */
+	protected void unsetRealmService(RealmService realmService) {
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("realmService set in SCIMCommonComponent bundle");
-        }
-        SCIMCommonComponentHolder.setRealmService(realmService);
-    }
+		if (logger.isDebugEnabled()) {
+			logger.debug("realmService unset in SCIMCommonComponent bundle");
+		}
+		SCIMCommonComponentHolder.setRealmService(null);
+	}
 
-    /**
-     * Unset realm service implementation
-     */
-    protected void unsetRealmService(RealmService realmService) {
+	protected void deactivate(ComponentContext context) {
+		if (this.tenantMgtListenerServiceReg != null) {
+			this.tenantMgtListenerServiceReg.unregister();
+		}
 
-        if (logger.isDebugEnabled()) {
-            logger.debug("realmService unset in SCIMCommonComponent bundle");
-        }
-        SCIMCommonComponentHolder.setRealmService(null);
-    }
-
-    protected void deactivate(ComponentContext context) {
-        if (tenantMgtListenerServiceReg != null) {
-            tenantMgtListenerServiceReg.unregister();
-        }
-
-        if (userOperationEventListenerServiceReg != null) {
-            userOperationEventListenerServiceReg.unregister();
-        }
-    }
+		if (this.userOperationEventListenerServiceReg != null) {
+			this.userOperationEventListenerServiceReg.unregister();
+		}
+	}
 }
